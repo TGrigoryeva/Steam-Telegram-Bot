@@ -1,0 +1,4 @@
+beautifulsoup4==4.6.0
+python-telegram-bot==8.0
+requests==2.18.4
+SQLAlchemy==1.1.14
