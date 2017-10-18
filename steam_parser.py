@@ -20,7 +20,7 @@ def get_html(url):
         result.raise_for_status()
         return result.text
     except requests.exceptions.RequestException:
-        print ("Error")
+        print ("get_html Error")
         return False
 
 def check_username(username):
@@ -35,9 +35,35 @@ def check_username(username):
     else:
         print("Пользователя {} не существует, либо страница скрыта".format(username))
         return False
+
+def wl_sales(username):
+    print("test sales function")
+    sales_result = list()
+    html = get_html("https://steamcommunity.com/id/%s/wishlist/" % (username))
+    bs = BeautifulSoup(html, "html.parser")
+    wish_games = bs.find_all("div", "wishlistRow")
+    for game in wish_games:
+        game_id = re.search(r'([0-9]+)', game['id']).group(0)
+        data = get_info("http://store.steampowered.com/api/appdetails?appids=%s&cc=ru" % (game_id))
+        game_name = data[game_id]["data"]["name"]
+        try:
+            prices = data[game_id]["data"]["price_overview"]
+        except KeyError:
+            continue
+        print(game_name)
+        if prices["discount_percent"] > 0:
+            sales_result.extend([game_name])
+            sales_result.append("http://store.steampowered.com/app/%s" % (game_id))
+            sales_result.extend([
+                "{} RUB, Скидка: {} %".format(prices["final"]/100, prices["discount_percent"]),
+                "Старая цена: {} RUB\n".format(prices["initial"]/100)
+                ])                         
+        else:
+            pass
+    return sales_result 
         
 def wishlist_notifications(username,command):
-    if check_username(username) is False:
+    if check_username(username) is False:  # useful only if "name = main"
         return
 
     # return variables for telegram
@@ -116,7 +142,7 @@ def wishlist_notifications(username,command):
             db_game.discount = prices["discount_percent"]  # update discounts
             db_session.commit()  # почему с коммитом ниже не исполняется код?
 
-        game_db_id = db_game.id # get database game id
+        game_db_id = db_game.id  # get database game id
         # new unique relationship user-game added. If entry already exist, raise exception:
         try:
             db_session.add(User_Game(game_db_id, user_db_id))
@@ -148,9 +174,11 @@ def wishlist_notifications(username,command):
     if command == "wishlist":
         return wishlist_result
         print(wishlist_result)
-    elif command == "notification":
+    elif command == "add":
         print(notifications_result)
         return notifications_result
+    elif command == "sales":
+        return wl_sales(username)
         
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ import telegram
 import logging
 from SteamDiscountsWLbot_APIkey import key
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from steam_parser import wishlist_notifications, check_username
+from steam_parser import wishlist_notifications, check_username, wl_sales
 import re
 from steam_db import db_session, Chat
 from datetime import timedelta
@@ -14,15 +14,20 @@ logging.basicConfig(format='%(name)s - %(levelname)s - %(message)s',
                     )
 
 def greet_user(bot, update):
-    update.message.reply_text("Для просмотра вишлиста отправьте сообщение с юзернеймом из персональной ссылки Steam:\nhttр://steamcommunity.cоm/id/username\n\nДля подписки на уведомления отправьте команду в формате:\n /notification username\n\nИспользуйте /off, чтобы приостановить подписку.") # клавиатура появится сразу после этого сообщения
-
+    update.message.reply_text("Для просмотра вишлиста отправьте сообщение с юзернеймом из персональной ссылки Steam:\
+                                \nhttр://steamcommunity.cоm/id/username\
+                                \n\nДля подписки на уведомления отправьте команду в формате:\n /add username\
+                                \nДля просмотра списка игр со скидками из вишлиста:\n /sales username\
+                                \n\nИспользуйте /off, чтобы приостановить подписку."
+                                )
+#  to get user Steam wishlist
 def wishlist(bot, update):
     user_text = update.message.text.replace(" ","")
     print(user_text)
     if not check_username(user_text):
         update.message.reply_text("Пользователя {} не существует, либо страница скрыта".format(user_text))
     else:
-        my_data = wishlist_notifications(user_text,"wishlist")  # тут словарь лежит
+        my_data = wishlist_notifications(user_text,"wishlist")
         print(my_data)
         telegram_wishlist = "\n".join(map(str,my_data))
         print(telegram_wishlist)
@@ -30,9 +35,24 @@ def wishlist(bot, update):
             update.message.reply_text("У пользователя нет игр в wishlist")
         else:
             update.message.reply_text(telegram_wishlist)
-        
-def notification(bot, update):
-    user_text = update.message.text[13:].replace(" ","")   
+#  to get once info about discounts in user wishlist
+def sales(bot, update):
+    user_text = update.message.text[6:].replace(" ","")
+    print(user_text,"test telegram user_text")
+    if not check_username(user_text):
+        update.message.reply_text("Пользователя {} не существует, либо страница скрыта".format(user_text))
+    else:
+        user_discounts = wl_sales(user_text) # не возвращает ничего
+        print(user_discounts)        
+        telegram_wl_sales = "\n".join(map(str,user_discounts))
+        print(telegram_wl_sales)
+        if not telegram_wl_sales:
+            update.message.reply_text("У пользователя нет игр со скидками в wishlist")
+        else:
+            update.message.reply_text(telegram_wl_sales)
+#  subscribe on notifications about new discounts in user Steam wishlist      
+def add(bot, update):
+    user_text = update.message.text[4:].replace(" ","")   
     if not check_username(user_text):
         update.message.reply_text("Пользователя {} не существует, либо страница скрыта".format(user_text))
     else:
@@ -48,7 +68,7 @@ def notification(bot, update):
             update.message.reply_text("Подписка включена")
         else:
             update.message.reply_text("Для новой подписки отмените предыдущую")
-
+# to cancel the subscription
 def off(bot, update):
     tel_chat_id = update.message.chat_id
     try:
@@ -58,16 +78,15 @@ def off(bot, update):
         db_session.commit()
     except:
         update.message.reply_text("Что-то пошло не так")
-    
-
+# picture callback    
 def photo(bot, update):
     print ("Got photo")
-    update.message.reply_photo("http://a.deviantart.net/avatars/t/o/toddthegreatshow.jpg?4")
-
+    update.message.reply_photo("http://cs616125.vk.me/v616125058/806a/S6GoMba5mX8.jpg")
+# to run job timer
 def callback_minute(bot, job):
     db_query = Chat.query.all()
     for chat in db_query:
-        result = wishlist_notifications(chat.username,"notification")
+        result = wishlist_notifications(chat.username,"add")
         print("telegram message: ", result)
         telegram_notification = "\n".join(map(str,result))
         try:
@@ -81,7 +100,8 @@ def main():
     dp = updater.dispatcher
     dp.add_handler(CommandHandler("start", greet_user))
     dp.add_handler(MessageHandler(Filters.text, wishlist))
-    dp.add_handler(CommandHandler("notification", notification))
+    dp.add_handler(CommandHandler("add", add))
+    dp.add_handler(CommandHandler("sales", sales))
     dp.add_handler(CommandHandler("off", off))
     dp.add_handler(MessageHandler(Filters.photo, photo))
     job_minute = j.run_repeating(callback_minute, interval=60, first=0)
