@@ -4,7 +4,6 @@ import logging
 from SteamDiscountsWLbot_APIkey import key
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from steam_parser import wishlist_notifications, check_username, wl_sales
-import re
 from steam_db import db_session, Chat
 from datetime import timedelta
 
@@ -20,8 +19,9 @@ def greet_user(bot, update):
                                 \nДля просмотра списка игр со скидками из вишлиста:\n /sales username\
                                 \n\nИспользуйте /off, чтобы приостановить подписку."
                                 )
-#  to get user Steam wishlist
+ 
 def wishlist(bot, update):
+    """ to get user Steam wishlist """
     user_text = update.message.text.replace(" ","")
     print(user_text)
     if not check_username(user_text):
@@ -35,8 +35,9 @@ def wishlist(bot, update):
             update.message.reply_text("У пользователя нет игр в wishlist")
         else:
             update.message.reply_text(telegram_wishlist)
-#  to get once info about discounts in user wishlist
+  
 def sales(bot, update):
+    """ to get once info about discounts in user wishlist """
     user_text = update.message.text[6:].replace(" ","")
     print(user_text,"test telegram user_text")
     if not check_username(user_text):
@@ -50,9 +51,10 @@ def sales(bot, update):
             update.message.reply_text("У пользователя нет игр со скидками в wishlist")
         else:
             update.message.reply_text(telegram_wl_sales)
-#  subscribe on notifications about new discounts in user Steam wishlist      
+       
 def add(bot, update):
-    user_text = update.message.text[4:].replace(" ","")   
+    """ subscribe to notifications about new discounts in user Steam wishlist """
+    user_text = update.message.text[4:].replace(" ","")       
     if not check_username(user_text):
         update.message.reply_text("Пользователя {} не существует, либо страница скрыта".format(user_text))
     else:
@@ -68,8 +70,9 @@ def add(bot, update):
             update.message.reply_text("Подписка включена")
         else:
             update.message.reply_text("Для новой подписки отмените предыдущую")
-# to cancel the subscription
+
 def off(bot, update):
+    """ unsubscribe """
     tel_chat_id = update.message.chat_id
     try:
         row_to_delete = db_session.query(Chat).filter(Chat.chat_id == tel_chat_id).first()
@@ -77,13 +80,15 @@ def off(bot, update):
         update.message.reply_text("Подписка отключена")
         db_session.commit()
     except:
-        update.message.reply_text("Что-то пошло не так")
-# picture callback    
+        update.message.reply_text("Подписка отсутствует")
+    
 def photo(bot, update):
+    """ picture callback """
     print ("Got photo")
     update.message.reply_photo("http://cs616125.vk.me/v616125058/806a/S6GoMba5mX8.jpg")
-# to run job timer
+
 def callback_minute(bot, job):
+    """ to run job timer """
     db_query = Chat.query.all()
     for chat in db_query:
         result = wishlist_notifications(chat.username,"add")
@@ -104,8 +109,8 @@ def main():
     dp.add_handler(CommandHandler("sales", sales))
     dp.add_handler(CommandHandler("off", off))
     dp.add_handler(MessageHandler(Filters.photo, photo))
-    job_minute = j.run_repeating(callback_minute, interval=60, first=0)
-#    job_minute = j.run_repeating(callback_minute, interval = timedelta(hours = 1), first=0)
+#    job_minute = j.run_repeating(callback_minute, interval=60, first=0)
+    job_minute = j.run_repeating(callback_minute, interval = timedelta(hours = 1), first=0)
 
 
 #    updater.dispatcher.add_handler(CallbackQueryHandler(button))
