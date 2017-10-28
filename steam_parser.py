@@ -1,18 +1,16 @@
-from steambot import get_info  # нужна ли эта функция?
 import requests
-import json
+from steambot import get_info
 from bs4 import BeautifulSoup
 import re
-from steam_db import db_session, Games, User, User_Game
-from sqlalchemy import exc
-from sqlalchemy.orm import relationship
+from steam_db import db_session, Games
+from datetime import datetime, timedelta
 import logging
 
-logging.basicConfig(format='%(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO,
-                    filename='steam_parser.log'
-                    )
-
+# config
+personal_wishlist_url = "https://steamcommunity.com/id/{}/wishlist/"
+game_store_url = "http://store.steampowered.com/app/{}"
+currency = "ru"
+api_game_details_url = "http://store.steampowered.com/api/appdetails?appids={}&cc={}"
 
 def get_html(url):
     try:
@@ -23,168 +21,165 @@ def get_html(url):
         print ("get_html Error")
         return False
 
-def check_username(username):
-    print(username)
-    html = get_html("https://steamcommunity.com/id/%s/wishlist/" % (username))
+def html_parser(username):
+    html = get_html(personal_wishlist_url.format(username))
     bs = BeautifulSoup(html, "html.parser")
-    error = bs.find("div", class_="error_ctn")
-    hidden_page = bs.find("body", class_="flat_page profile_page private_profile responsive_page")
-    if error is None and hidden_page is None:
-        print("Юзернейм правильный")
+    return bs
+
+def check_username(username):
+    """  check if Steam id personal reference exists """
+    try:
+        error = html_parser(username).find("div", class_="error_ctn")
+        hidden_page = html_parser(username).find("body", class_="flat_page profile_page private_profile responsive_page")
+    except:
+        print("Invalid URL")
+        return False
+
+    if not error and not hidden_page:
+        print("Юзернейм {} правильный".format(username))
         return True      
     else:
         print("Пользователя {} не существует, либо страница скрыта".format(username))
         return False
 
 def wl_sales(username):
-    print("test sales function")
+    """ get list of games with discounts from user's wishlist"""
     sales_result = list()
-    html = get_html("https://steamcommunity.com/id/%s/wishlist/" % (username))
-    bs = BeautifulSoup(html, "html.parser")
-    wish_games = bs.find_all("div", "wishlistRow")
+
+    wish_games = html_parser(username).find_all("div", "wishlistRow")
+
     for game in wish_games:
         game_id = re.search(r'([0-9]+)', game['id']).group(0)
-        data = get_info("http://store.steampowered.com/api/appdetails?appids=%s&cc=ru" % (game_id))
+        data = get_info(api_game_details_url.format(game_id,currency))
         game_name = data[game_id]["data"]["name"]
+
         try:
             prices = data[game_id]["data"]["price_overview"]
         except KeyError:
             continue
-        print(game_name)
+
+        # print(game_name)
+
         if prices["discount_percent"] > 0:
             sales_result.extend([game_name])
-            sales_result.append("http://store.steampowered.com/app/%s" % (game_id))
+            sales_result.append(game_store_url.format(game_id))
             sales_result.extend([
                 "{} RUB, Скидка: {} %".format(prices["final"]/100, prices["discount_percent"]),
                 "Старая цена: {} RUB\n".format(prices["initial"]/100)
                 ])                         
         else:
             pass
+
     return sales_result 
         
 def wishlist_notifications(username,command):
-    if check_username(username) is False:  # useful only if "name = main"
-        return
 
     # return variables for telegram
     wishlist_result = list()
     notifications_result = list()
 
-    html = get_html("https://steamcommunity.com/id/%s/wishlist/" % (username))   
-
-    db_user = User.query.filter(User.username == username).first()  # будет значение None, если таких данных нет
-    # add new username to DB 
-    if db_user is None:
-        db_session.add(User(username))
-        db_user = User.query.filter(User.username == username).first()  # <User naash71> - то, что получим
-
-    user_db_id = db_user.id  # get database user id
-
-    bs = BeautifulSoup(html, "html.parser")
-    wish_games = bs.find_all("div", "wishlistRow")
-    all_games = []
+    wish_games = html_parser(username).find_all("div", "wishlistRow")
 
     # нашли ID игр из WISHLIST пользователя
-
     for game in wish_games:
         game_id = re.search(r'([0-9]+)', game['id']).group(0)
-        all_games.append(int(game_id))
 
-    # нашли цены по ID игры из WISHLIST
-
-        data = get_info("http://store.steampowered.com/api/appdetails?appids=%s&cc=ru" % (game_id))
+        # нашли цены по ID игры из WISHLIST
+        data = get_info(api_game_details_url.format(game_id,currency))
         game_name = data[game_id]["data"]["name"]
-        try:  # в Steam бывают игры без цены. устраняем KeyError. В БД не попадет
+
+        # в Steam бывают игры без цены. устраняем KeyError. В БД не попадет
+        try:  
             prices = data[game_id]["data"]["price_overview"]
         except KeyError:
-            print(game_name)
-            print("Цена для данного продукта отсутствует\n")
             wishlist_result.extend([game_name,"Цена для данного продукта отсутствует\n"])
             continue
-        print(game_name)
-        print("http://store.steampowered.com/app/%s" % (game_id))
+
         wishlist_result.extend([game_name])
-        wishlist_result.append("http://store.steampowered.com/app/%s" % (game_id))
+        wishlist_result.append(game_store_url.format(game_id))
 
         if prices["discount_percent"] == 0:
-            print(prices["initial"]/100,"RUB")
             wishlist_result.extend(["{} RUB\n".format(prices["initial"]/100)])
         else:
-            print(prices["final"]/100,"RUB,","Скидка:",prices["discount_percent"],"%\nСтарая цена:", prices["initial"]/100,"RUB")
             wishlist_result.extend([
                 "{} RUB, Скидка: {} %".format(prices["final"]/100, prices["discount_percent"]),
                 "Старая цена: {} RUB\n".format(prices["initial"]/100)
                 ]) 
-        print("\n")
 
         db_game = Games.query.filter(Games.game_id == game_id).first()
 
-        if db_game is None:
+        if not db_game:
             db_session.add(Games(game_id, game_name, prices["discount_percent"]))  # new game added to database
             db_game = Games.query.filter(Games.game_id == game_id).first()
 
-        elif prices["discount_percent"] > db_game.discount:  # notification about discount
-            print(game_name)
-            print("http://store.steampowered.com/app/%s" % (game_id))
-            print(prices["final"]/100,"RUB,","Скидка:",prices["discount_percent"],"%\nСтарая цена:", prices["initial"]/100,"RUB")
-            print("\n")
-            print("new discount")
+        if prices["discount_percent"] > db_game.discount:  # notification about discount
+
             notifications_result.extend([
                 game_name,
-                "http://store.steampowered.com/app/%s" % (game_id),
+                game_store_url.format(game_id),
                 "{} RUB, Скидка: {} %".format(prices["final"]/100, prices["discount_percent"]),
                 "Старая цена: {} RUB\n".format(prices["initial"]/100)
                 ])
 
-            db_game.discount = prices["discount_percent"]  # update discounts
-            db_session.commit()
-        else:
-            db_game.discount = prices["discount_percent"]  # update discounts
-            db_session.commit()  # почему с коммитом ниже не исполняется код?
-
-        game_db_id = db_game.id  # get database game id
-        # new unique relationship user-game added. If entry already exist, raise exception:
-        try:
-            db_session.add(User_Game(game_db_id, user_db_id))
-            db_session.flush()
-        except exc.IntegrityError:
-            db_session.rollback()
-
-    # get list of user games from DB
-    g = db_session.query(Games).filter(Games.user.any(User.username == username)).all()  # get db_usergames through filter by username
-    db_usergames = []
-    for row in g:
-        db_usergames.append(row.game_id)
-
-    #  check if user has deleted game from steam wishlist
-    for value in db_usergames:
-        if not db_usergames:
-            print("db_usergames list is empty, pass")
-        elif value not in all_games:
-    # if game has been removed from wishlist, remove entry from db User_Game table:  
-            db_game = Games.query.filter(Games.game_id == value).first()
-            game_db_id = db_game.id
-            row_to_delete = db_session.query(User_Game).filter(User_Game.game_id == game_db_id, User_Game.user_id == user_db_id).first()
-            print(row_to_delete,"row to delete")
-            db_session.delete(row_to_delete)
-            print("game {} deleted".format(value))
+            # print(notifications_result)
+        # print(wishlist_result)
 
     db_session.commit()
 
     if command == "wishlist":
         return wishlist_result
-        print(wishlist_result)
     elif command == "add":
-        print(notifications_result)
         return notifications_result
     elif command == "sales":
         return wl_sales(username)
-        
+
+def db_discounts_update():
+    """ Updates discounts values in database
+        If new discount appears, fix the time for no futher actions within 6 hours,
+        because while Steam sets new discount, discount values can change
+        for many hours from the start.
+        After 6 hours expired, delete time stamp
+    """
+    delta_hours = timedelta(hours = 6)
+    current_time = datetime.now()
+    timestamp_finish = current_time - delta_hours
+
+    db_games = Games.query.all()
+
+    for game in db_games:
+        game_data = get_info(api_game_details_url.format(game.game_id,currency))
+
+        try:
+            prices = game_data[str(game.game_id)]["data"]["price_overview"]
+
+            try:
+                # update discounts values if timedelta for existing timestamp expired
+                if not game.discount_start_time or timestamp_finish > game.discount_start_time:
+                    
+                    # if new discount appears, set timestamp in database
+                    if prices["discount_percent"] > (game.discount):  
+                        game.discount_start_time = datetime.now()
+                        print("update: new discount {}".format(game.game_name))                        
+                    else:
+                        game.discount_start_time = None
+                        print("update: price update {}".format(game.game_name))
+
+                    game.discount = prices["discount_percent"]
+            except:
+                print("update: except {}".format(game.game_name)) 
+                continue
+
+        except:
+            print("exception")
+            continue
+
+    db_session.commit()
 
 if __name__ == "__main__":
     username = "naash71"  # будет вводиться пользователем в сообщении telegram
     command = "wishlist"  # команда из telegram
     wishlist_notifications(username,command)
+#    db_discounts_update()
 #    check_username(username)
 
 '''
