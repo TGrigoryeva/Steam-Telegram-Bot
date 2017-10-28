@@ -2,7 +2,11 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+<<<<<<< HEAD
 from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Boolean  # ForeignKey - отвечает за связь с другой таблицей
+=======
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean  # ForeignKey - отвечает за связь с другой таблицей
+>>>>>>> b2a4e627faf3526854a4193b83c45012c232f8de
 
 engine = create_engine('sqlite:///steam.sqlite')  # выбираем БД, с которой будем работать (в данном случае sqlite). файл с БД будет называться blog.sqlite
 
